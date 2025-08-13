@@ -12,9 +12,8 @@ if "history" not in st.session_state:
 # -------------------
 # Load API key
 # -------------------
-with open(r"C:\Users\aliaw\Desktop\chat_bot\api_key.txt", "r") as f:
-    GOOGLE_API_KEY = f.read().strip()
 
+GOOGLE_API_KEY = st.secrets["api_key"]
 # -------------------
 # Create Chat Model
 # -------------------
@@ -97,4 +96,5 @@ if st.button("Ask"):
         st.session_state.history.append(AIMessage(content=response))
     else:
         st.warning("Please enter a question.")
+
 
