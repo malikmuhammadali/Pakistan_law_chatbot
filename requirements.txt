@@ -1,0 +1,6 @@
+langchain
+langchain_google_genai
+google-generativeai
+streamlit
+python-dotenv
+tiktoken
