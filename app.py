@@ -250,7 +250,7 @@ if st.session_state.history:
 # =========================
 # Main Input
 # =========================
-user_input = st.text_input("Enter your question (e.g., 'Article 176', 'What is khula under Pakistani law?')")
+user_input = st.text_input("Enter your question ")
 
 col1, col2 = st.columns([1, 3])
 with col1:
@@ -282,3 +282,4 @@ if ask:
         st.session_state.history.append(AIMessage(content=response))
     else:
         st.warning("Please enter a question.")
+
