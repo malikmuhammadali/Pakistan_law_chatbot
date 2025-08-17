@@ -35,7 +35,7 @@ GOOGLE_API_KEY = st.secrets.get("api_key", "")
 
 
 # =========================
-# Knowledge Base (Fallback)
+# Knowledge Base (Fallback for Constitution)
 # =========================
 DEFAULT_KB: Dict[str, Dict[str, Any]] = {
     "176": {
@@ -132,35 +132,28 @@ def extract_article_number(text: str) -> Optional[str]:
 
 
 def render_article_response(num: str, entry: Dict[str, Any]) -> str:
+    """Format Article response in one single heading block"""
     title = entry.get("title", "").strip()
     text = entry.get("text", "").strip()
     summary = entry.get("summary", "").strip()
     examples: List[str] = entry.get("examples", [])
     related: List[str] = entry.get("related", [])
 
-    lines = []
-    lines.append(f"### 1) Correct Article/Law\n**Article {num} – {title}**")
+    details = f"**Article {num} – {title}**\n\n"
+
     if text:
-        lines.append("\n### 2) Authentic Wording or Summary")
-        if len(text) <= 600:
-            lines.append(f"**Authentic Wording:** {text}")
-            if summary:
-                lines.append(f"\n**Detailed Explanation:** {summary}")
-        else:
-            if summary:
-                lines.append(f"**Detailed Explanation:** {summary}")
-            lines.append("\n*(Full text is lengthy; refer to the official Gazette text.)*")
-
+        details += f"**Authentic Wording:** {text}\n\n"
+    if summary:
+        details += f"**Detailed Explanation:** {summary}\n\n"
     if examples:
-        lines.append("\n### 3) Practical Example(s) / Scenario(s)")
-        for i, ex in enumerate(examples[:2], start=1):
-            lines.append(f"- {ex}")
-
+        details += "**Practical Example(s) / Scenario(s):**\n"
+        for ex in examples[:2]:
+            details += f"- {ex}\n"
+        details += "\n"
     if related:
-        lines.append("\n### 4) Related Provisions")
-        lines.append(", ".join([f"Article {r}" for r in related]))
+        details += f"**Related Provisions:** {', '.join([f'Article {r}' for r in related])}\n"
 
-    return "\n".join(lines)
+    return "### Article Information\n\n" + details
 
 
 def handle_article_query(user_input: str) -> Optional[str]:
@@ -172,16 +165,11 @@ def handle_article_query(user_input: str) -> Optional[str]:
     if entry:
         return render_article_response(num, entry)
     else:
-        suggestions = []
-        if num in {"175", "176", "177", "178"}:
-            suggestions = ["176", "177", "175", "178"]
-        else:
-            suggestions = ["89", "128", "175", "176", "177"]
-
+        suggestions = ["89", "128", "175", "176", "177"]
         hint = ", ".join([f"Article {s}" for s in suggestions])
         return (
             "I’m not fully certain without checking the official text for that Article number. "
-            "If you can share the subject matter (e.g., ‘ordinances’, ‘composition of Supreme Court’), "
+            f"If you can share the subject matter (e.g., ‘ordinances’, ‘composition of Supreme Court’), "
             f"I can match it precisely. Likely relevant: {hint}."
         )
 
@@ -200,36 +188,33 @@ system_prompt = SystemMessage(
         """ROLE
 You are a legal assistant specialized only in the Constitution and laws of Pakistan.
 
-SCOPE (hard limit)
+SCOPE
 - If the question is not about Pakistan’s law or Constitution, reply exactly:
   "Sorry, I can only provide information related to laws in Pakistan."
 
-VERIFICATION (very important)
-- Before stating that an Article does not exist, first double-check against the Constitution of the Islamic Republic of Pakistan, 1973 (as amended).
-- If you cannot reliably verify, say: "I’m not fully certain without checking the text," then ask for the subject matter and suggest likely Article(s) with brief reasoning.
+VERIFICATION
+- Before stating that an Article does not exist, double-check against the Constitution of Pakistan (1973).
+- If you cannot reliably verify, say: "I’m not fully certain without checking the text," then ask for the subject matter and suggest likely Article(s).
 - Never invent section numbers, case names, dates, or figures.
 
 WHEN ASKED ABOUT A CONSTITUTIONAL ARTICLE
-1) Confirm or repair the Article number.
-2) Provide the exact wording (if short) or an authentic, faithful summary (if long).
-3) Provide 1–2 practical scenarios.
-4) If the user’s number is wrong, politely correct it.
+- Provide authentic wording or summary
+- Provide 1–2 practical scenarios
+- Mention related provisions (if any)
 
-WHEN ASKED ABOUT A PAKISTANI STATUTE/LAW
-- Explain simply, note key elements, remedies/penalties.
-- Give 1–2 practical scenarios.
-- If multiple interpretations exist, note the main views.
+WHEN ASKED ABOUT OTHER PAKISTANI LAWS (PPC, CrPC, Family Law, Cyber, etc.)
+- Explain simply
+- Note key elements, remedies/penalties
+- Provide 1–2 practical scenarios
 
 FORMAT
-1. Correct Article/Law
-2. Authentic Wording or Summary
-3. Practical Example(s) / Scenario(s)
-4. Related Provisions (if any)
+- Always return under **one main heading** (e.g., "Article Information" or "Law Information")
+- Use bold labels for sections inside.
 
 STYLE
-- Polite, professional, concise.
-- Numbered/bulleted.
-- If unsure, say so explicitly.
+- Polite, professional, concise
+- Bulleted or short paragraphs
+- If unsure, say so explicitly
 """
     )
 )
@@ -285,7 +270,7 @@ if ask:
             if kb_answer is not None:
                 response = kb_answer
             else:
-                if not re.search(r"\b(pakistan|pakistani|constitution|article|ppc|crpc|family|nikah|khula|court|high court|supreme court|ordinance|act|law|bylaws|labour|cyber|pta|fbr|nab|ipc)\b", user_input, re.IGNORECASE):
+                if not re.search(r"\b(pakistan|pakistani|constitution|article|ppc|crpc|family|nikah|khula|court|supreme court|ordinance|act|law|bylaws|labour|cyber|pta|fbr|nab)\b", user_input, re.IGNORECASE):
                     response = 'Sorry, I can only provide information related to laws in Pakistan.'
                 else:
                     response = chain.invoke({"human_input": user_input})
