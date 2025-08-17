@@ -37,7 +37,6 @@ GOOGLE_API_KEY = st.secrets.get("api_key", "")
 # =========================
 # Knowledge Base (Fallback)
 # =========================
-# Minimal built-in KB to prevent classic mix-ups. You can replace/extend this via constitution.json
 DEFAULT_KB: Dict[str, Dict[str, Any]] = {
     "176": {
         "title": "Constitution of Supreme Court",
@@ -101,23 +100,11 @@ DEFAULT_KB: Dict[str, Dict[str, Any]] = {
 def load_constitution_json(path: str = "constitution.json") -> Dict[str, Dict[str, Any]]:
     """
     Loads a full constitution KB if available; otherwise returns the DEFAULT_KB.
-    Expected JSON format:
-    {
-      "176": {
-        "title": "...",
-        "text": "...",
-        "summary": "...",
-        "examples": ["...", "..."],
-        "related": ["177", "178"]
-      },
-      ...
-    }
     """
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # Merge: file entries override defaults; defaults fill gaps.
             merged = {**DEFAULT_KB, **data}
             return merged
         except Exception as e:
@@ -137,8 +124,7 @@ ARTICLE_PATTERN = re.compile(r"\barticle\s+(\d{1,3})\b", re.IGNORECASE)
 def extract_article_number(text: str) -> Optional[str]:
     m = ARTICLE_PATTERN.search(text or "")
     if m:
-        return str(int(m.group(1)))  # normalize like "001"->"1"
-    # fallback: if user typed just a number
+        return str(int(m.group(1)))
     only_num = re.search(r"\b(\d{1,3})\b", text or "")
     if only_num and "article" in text.lower():
         return str(int(only_num.group(1)))
@@ -156,57 +142,36 @@ def render_article_response(num: str, entry: Dict[str, Any]) -> str:
     lines.append(f"### 1) Correct Article/Law\n**Article {num} – {title}**")
     if text:
         lines.append("\n### 2) Authentic Wording or Summary")
-        # If the official wording is short, show it; else show the summary first.
         if len(text) <= 600:
             lines.append(f"**Authentic Wording:** {text}")
             if summary:
-                lines.append(f"\n**Summary:** {summary}")
+                lines.append(f"\n**Detailed Explanation:** {summary}")
         else:
             if summary:
-                lines.append(f"**Summary:** {summary}")
+                lines.append(f"**Detailed Explanation:** {summary}")
             lines.append("\n*(Full text is lengthy; refer to the official Gazette text.)*")
 
-    lines.append("\n### 3) Simple Explanation")
-    # A compact, user-friendly explanation (kept generic here; you can specialize per entry in KB)
-    if num == "176":
-        lines.append("This Article sets how the Supreme Court is composed: one Chief Justice of Pakistan plus other judges. "
-                     "Parliament decides the number of judges; until it does, the President may fix the number. "
-                     "*(سادہ اردو: اس آرٹیکل میں سپریم کورٹ کی تشکیل کا طریقہ بتایا گیا ہے—چیف جسٹس اور دیگر ججز کی تعداد پارلیمنٹ یا عارضی طور پر صدر مقرر کر سکتے ہیں.)*")
-    elif num == "89":
-        lines.append("This Article empowers the President to issue temporary laws (Ordinances) when the National Assembly is not in session, "
-                     "subject to time limits and laying before the Assembly for approval/disapproval. "
-                     "*(سادہ اردو: جب قومی اسمبلی کا اجلاس نہ ہو تو صدر وقتی قانون بطور آرڈیننس جاری کر سکتے ہیں، جو مخصوص مدت کے بعد ختم ہو سکتا ہے جب تک پارلیمنٹ اسے منظور نہ کر دے.)*")
-    else:
-        lines.append(summary or "This provision applies within Pakistan’s constitutional framework. See examples below.")
-
     if examples:
-        lines.append("\n### 4) Practical Example(s) / Scenario(s)")
+        lines.append("\n### 3) Practical Example(s) / Scenario(s)")
         for i, ex in enumerate(examples[:2], start=1):
             lines.append(f"- {ex}")
 
     if related:
-        lines.append("\n### 5) Related Provisions")
+        lines.append("\n### 4) Related Provisions")
         lines.append(", ".join([f"Article {r}" for r in related]))
 
     return "\n".join(lines)
 
 
 def handle_article_query(user_input: str) -> Optional[str]:
-    """
-    If the input refers to an Article and exists in KB → return formatted response.
-    If input refers to an Article but not in KB → return a polite uncertainty message.
-    Otherwise return None (so the caller can route to LLM).
-    """
     num = extract_article_number(user_input)
     if not num:
         return None
 
-    # If user references an Article explicitly, we must verify before denying existence.
     entry = KB.get(num)
     if entry:
         return render_article_response(num, entry)
     else:
-        # Polite uncertainty with repair suggestions (common confusions: 89 vs 176 vs 128)
         suggestions = []
         if num in {"175", "176", "177", "178"}:
             suggestions = ["176", "177", "175", "178"]
@@ -224,7 +189,6 @@ def handle_article_query(user_input: str) -> Optional[str]:
 # =========================
 # LLM Model & Prompt
 # =========================
-# Use a low temperature for consistency
 chat_model = ChatGoogleGenerativeAI(
     api_key=GOOGLE_API_KEY,
     model="gemini-1.5-flash",
@@ -246,28 +210,26 @@ VERIFICATION (very important)
 - Never invent section numbers, case names, dates, or figures.
 
 WHEN ASKED ABOUT A CONSTITUTIONAL ARTICLE
-1) Confirm or repair the Article number (e.g., user confuses 176 with 89).
+1) Confirm or repair the Article number.
 2) Provide the exact wording (if short) or an authentic, faithful summary (if long).
-3) Give a simple explanation (use plain English; add Urdu gloss where helpful).
-4) Provide 1–2 practical scenarios useful for advocates, judges, or law students.
-5) If the user’s number is wrong, politely correct it and then answer with the correct Article.
+3) Provide 1–2 practical scenarios.
+4) If the user’s number is wrong, politely correct it.
 
-WHEN ASKED ABOUT A PAKISTANI STATUTE/LAW (criminal, family, property, labor, cyber, contract, etc.)
-- Explain in simple language, note key elements/thresholds, and typical remedies/penalties.
-- Add 1–2 practical scenarios (common applications, pitfalls, practice tips).
-- If multiple interpretations exist, note the main views and controlling provisions.
+WHEN ASKED ABOUT A PAKISTANI STATUTE/LAW
+- Explain simply, note key elements, remedies/penalties.
+- Give 1–2 practical scenarios.
+- If multiple interpretations exist, note the main views.
 
-FORMAT (always use this structure)
+FORMAT
 1. Correct Article/Law
 2. Authentic Wording or Summary
-3. Simple Explanation
-4. Practical Example(s) / Scenario(s)
-5. Related Provisions (if any)
+3. Practical Example(s) / Scenario(s)
+4. Related Provisions (if any)
 
 STYLE
 - Polite, professional, concise.
-- Prefer numbered or bulleted structure.
-- If unsure on any fact, explicitly say you’re not fully certain rather than guessing.
+- Numbered/bulleted.
+- If unsure, say so explicitly.
 """
     )
 )
@@ -310,7 +272,7 @@ with col1:
     ask = st.button("Ask")
 
 with col2:
-    st.write("")  # just spacing
+    st.write("")
 
 
 # =========================
@@ -319,51 +281,19 @@ with col2:
 if ask:
     if user_input and user_input.strip():
         with st.spinner("Thinking..."):
-            # First, try the Article KB path for reliability
             kb_answer = handle_article_query(user_input)
             if kb_answer is not None:
                 response = kb_answer
             else:
-                # Non-article (or general law) → go to LLM with strong guardrails
-                # Hard scope check: if clearly out of Pakistan law, reply with scope message (extra safety)
                 if not re.search(r"\b(pakistan|pakistani|constitution|article|ppc|crpc|family|nikah|khula|court|high court|supreme court|ordinance|act|law|bylaws|labour|cyber|pta|fbr|nab|ipc)\b", user_input, re.IGNORECASE):
                     response = 'Sorry, I can only provide information related to laws in Pakistan.'
                 else:
                     response = chain.invoke({"human_input": user_input})
 
-        # Display response
         st.success("Answer:")
         st.markdown(response)
 
-        # Save history
         st.session_state.history.append(HumanMessage(content=user_input))
         st.session_state.history.append(AIMessage(content=response))
     else:
         st.warning("Please enter a question.")
-
-
-# =========================
-# Helper: How to expand KB
-# =========================
-with st.expander("ℹ️ How to add/expand the Constitution knowledge base"):
-    st.markdown(
-        """
-**Option A (Recommended):** Create a `constitution.json` in the app folder with entries like:
-
-```json
-{
-  "176": {
-    "title": "Constitution of Supreme Court",
-    "text": "The Supreme Court shall consist of a Chief Justice of Pakistan and so many other Judges as may be determined by Act of Majlis-e-Shoora (Parliament) or, until so determined, as may be fixed by the President.",
-    "summary": "Sets the composition of the Supreme Court.",
-    "examples": [
-      "Parliament may increase the number of Supreme Court judges to reduce backlog.",
-      "President may temporarily fix the number until Parliament decides."
-    ],
-    "related": ["175", "177", "178"]
-  }
-}
-"""
-    )
-
-
