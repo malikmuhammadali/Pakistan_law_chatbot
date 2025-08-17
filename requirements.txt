@@ -1,6 +1,7 @@
 langchain
-langchain_google_genai
+langchain-google-genai
 google-generativeai
 streamlit
 python-dotenv
 tiktoken
+
